@@ -4,11 +4,17 @@
 #include <addons/TokenHelper.h>
 #include <addons/RTDBHelper.h>
 
-#define API_KEY "AIzaSyAl_eUmTrRauQGE7xeRPBcehvK8wtAvnzo"
-#define DATABASE_URL "https://bcs-akebapen-us-central-default-rtdb.firebaseio.com/"
+#define API_KEY "AIzaSyB0wk84Ujy458903OmhZ1fCCl2Kxfa_xzM"
+#define DATABASE_URL "https://bcs-anti-kebakaran-pencurian-default-rtdb.asia-southeast1.firebasedatabase.app/"
+
+// const char *ssid = "AKEBAPEN";
+// const char *password = "12345678";
 
 const char *ssid = "2nd Floor_Tanjung";
 const char *password = "salman07";
+
+// const char *ssid = "Ida Bagus Putu Putra Manauaba ";
+// const char *password = "12341234";
 
 const int relayPin = D8;
 const int mq2Pin = A0;
@@ -28,7 +34,7 @@ unsigned long sendDataPrevMillis = 0;
 int count = 0;
 bool signupOK = false;
 bool relay_statusAuto = false;
-bool relay_statusManual = true;
+bool relay_statusManual = false;
 int lastGasStatus = 0;
 
 bool manualControl = false; // Tambahkan variabel untuk kontrol manual
@@ -36,14 +42,15 @@ bool manualControl = false; // Tambahkan variabel untuk kontrol manual
 void connectToWiFi();
 void connectToFirebase();
 void setupComponents();
-void updateGasSafetyIndicator(int gasValue);
 void sendDataToFirebase(int gasValue);
 void sendAutoRelayStatusToFirebase();
 void sendManualRelayStatusToFirebase();
 void checkAutoRelayStatusFromFirebase();
 void checkManualRelayStatusFromFirebase();
-void manualControlRelay();
-void checkManualRelayStatusFromFirebase();
+void updateGasSafetyIndicatorManual(int gasValue);
+void updateGasSafetyIndicatorAuto(int gasValue);
+void updateGasSafetyIndicator(int gasValue);
+
 
 void setup()
 {
@@ -64,8 +71,7 @@ void setupComponents()
   digitalWrite(yellowLedPin, HIGH);
 }
 
-void loop()
-{
+void loop() {
   checkAutoRelayStatusFromFirebase();
   checkManualRelayStatusFromFirebase(); // Membaca nilai manual_relay_status dari Firebase
 
@@ -76,35 +82,10 @@ void loop()
   Serial.println(gasValue);
   sendDataToFirebase(gasValue);
   delay(1000);
-
-  // Baca status relay dari Firebase hanya jika tidak dalam mode kontrol manual
-  if (!manualControl && Firebase.ready() && signupOK)
-  {
-    String autoBoolPath = "/relay_status/auto_relay_status";
-    if (Firebase.RTDB.getBool(&fbdo, autoBoolPath.c_str()))
-    {
-      relay_statusAuto = fbdo.boolData();
-    }
-    else
-    {
-      Serial.println("Failed to get auto relay status from Firebase");
-      Serial.println("Reason: " + fbdo.errorReason());
-    }
-  }
-
+  
   // Memaksa mengaktifkan relay jika relay_statusAuto true atau mode kontrol manual aktif
-  if (relay_statusManual || manualControl)
-  {
-    manualControlRelay(); // Panggil fungsi kontrol manual
-  }
-  else
-  {
-    updateGasSafetyIndicator(gasValue);
-  }
+  updateGasSafetyIndicator(gasValue);
 }
-
-
-
 void connectToWiFi()
 {
   Serial.println();
@@ -166,7 +147,7 @@ void checkAutoRelayStatusFromFirebase()
 {
   if (Firebase.ready() && signupOK)
   {
-    String autoBoolPath = "/relay_status/auto_relay_status";
+    String autoBoolPath = "/relay_status/device_2/auto_relay_status";
     if (Firebase.RTDB.getBool(&fbdo, autoBoolPath.c_str()))
     {
       relay_statusAuto = fbdo.boolData();
@@ -190,65 +171,33 @@ void checkAutoRelayStatusFromFirebase()
   }
 }
 
-void checkManualRelayStatusFromFirebase()
-{
-  if (Firebase.ready() && signupOK)
-  {
-    String manualBoolPath = "/relay_status/manual_relay_status";
-    if (Firebase.RTDB.getString(&fbdo, manualBoolPath.c_str())) // Menggunakan getString() untuk mendapatkan nilai sebagai string
-    {
-      String manualString = fbdo.stringData(); // Ambil string dari Firebase
-
-      // Konversi string menjadi boolean
-      bool relayStatus = (manualString == "1") ? true : false;
-
+void checkManualRelayStatusFromFirebase() {
+  if (Firebase.ready() && signupOK) {
+    String manualBoolPath = "/relay_status/device_2/manual_relay_status";
+    if (Firebase.RTDB.getString(&fbdo, manualBoolPath.c_str())) {
+      String relayStatusManualStr = fbdo.stringData(); // Ambil nilai string dari Firebase
+      // Konversi nilai string menjadi boolean
+      bool relayStatusManualFromFirebase = (relayStatusManualStr == "1");
+      
       Serial.print("Membaca nilai relay manual dari Firebase: ");
-      Serial.println(relayStatus);
+      Serial.println(relayStatusManualFromFirebase);
 
-      // Simpan nilai relayStatus jika diperlukan untuk penggunaan selanjutnya
-      relay_statusManual = relayStatus;
-
-      // Jika nilai manual_relay_status false, matikan relay
-      if (!relayStatus)
-      {
-        digitalWrite(relayPin, LOW);
-        Serial.println("Matikan Relay karena nilai manual_relay_status false.");
-      }
-    }
-    else
-    {
+      // Perbarui status relay manual lokal jika berhasil membaca dari Firebase
+      relay_statusManual = relayStatusManualFromFirebase;
+    } else {
       Serial.println("Gagal membaca status relay manual dari Firebase");
       Serial.println("Alasan: " + fbdo.errorReason());
     }
   }
 }
 
-void manualControlRelay() {
-  int gasValue = analogRead(mq2Pin);
 
-  // Jika relay sedang dalam mode kontrol manual, relay akan selalu aktif
-  if (relay_statusManual) {
-    digitalWrite(relayPin, HIGH); // Aktifkan relay
-    digitalWrite(yellowLedPin, HIGH);
-    digitalWrite(greenLedPin, LOW);
-    Serial.println("Mode Kontrol Manual Aktif - Aktifkan Relay");
-    if (gasValue >= PERINGATAN_THRESHOLD && gasValue < BAHAYA_THRESHOLD) {
-      updateGasSafetyIndicator(gasValue); // Perbarui indikator keamanan gas saat dalam kondisi bahaya
-    }
-
-  } else {
-    // Jika relay tidak dalam mode kontrol manual
-    digitalWrite(relayPin, LOW); // Matikan relay
-    Serial.println("Mode Kontrol Manual Non-Aktif - Matikan Relay");
-    updateGasSafetyIndicator(gasValue); // Perbarui indikator keamanan gas
-  }
-}
 
 void sendDataToFirebase(int intValue)
 {
   if (Firebase.ready() && signupOK && (millis() - sendDataPrevMillis > 15000 || sendDataPrevMillis == 0))
   {
-    String intPath = "/lpg_concentration/lpg_concentration_1";
+    String intPath = "/lpg_concentration/device_2/lpg_concentration_sensor_value";
     if (Firebase.RTDB.setInt(&fbdo, intPath.c_str(), intValue))
     {
       Serial.println("Integer data sent to Firebase successfully");
@@ -264,7 +213,7 @@ void sendDataToFirebase(int intValue)
 
 void sendAutoRelayStatusToFirebase() {
   if (Firebase.ready() && signupOK) {
-    String autoBoolPath = "/relay_status/auto_relay_status";
+    String autoBoolPath = "/relay_status/device_2/auto_relay_status";
     if (Firebase.RTDB.setBool(&fbdo, autoBoolPath.c_str(), relay_statusAuto)) {
       Serial.println("Status relay otomatis terkirim ke Firebase: " + String(relay_statusAuto));
     } else {
@@ -276,7 +225,7 @@ void sendAutoRelayStatusToFirebase() {
 
 void sendManualRelayStatusToFirebase() {
   if (Firebase.ready() && signupOK) {
-    String manualBoolPath = "/relay_status/manual_relay_status";
+    String manualBoolPath = "/relay_status/device_2/manual_relay_status";
     
     // Konversi nilai boolean menjadi string "0" atau "1"
     String manualBoolValue = relay_statusManual ? "1" : "0";
@@ -292,68 +241,6 @@ void sendManualRelayStatusToFirebase() {
 
 
 
-
-
-
-void updateGasSafetyIndicatorAuto(int gasValue) {
-  int newGasStatus = 0;
-  if (gasValue >= BAHAYA_THRESHOLD) {
-    relay_statusAuto = true;
-    relay_statusManual = true; // Ubah hanya jika tidak dalam kontrol manual
-    digitalWrite(relayPin, HIGH);
-    digitalWrite(redLedPin, HIGH);
-    digitalWrite(yellowLedPin, LOW);
-    digitalWrite(greenLedPin, LOW);
-    Serial.println("BAHAYA! Aktifkan relay.");
-    newGasStatus = 2;
-  } else if (gasValue >= PERINGATAN_THRESHOLD && gasValue < BAHAYA_THRESHOLD) {
-    relay_statusAuto = false;
-    relay_statusManual = false;
-    digitalWrite(relayPin, LOW);
-    digitalWrite(redLedPin, LOW);
-    digitalWrite(yellowLedPin, HIGH);
-    digitalWrite(greenLedPin, LOW);
-    Serial.println("PERINGATAN! Matikan relay.");
-    newGasStatus = 1;
-  } else if (gasValue <= AMAN_THRESHOLD && gasValue < PERINGATAN_THRESHOLD) {
-    relay_statusAuto = false;
-    relay_statusManual = false;
-    digitalWrite(relayPin, LOW);
-    digitalWrite(redLedPin, LOW);
-    digitalWrite(yellowLedPin, LOW);
-    digitalWrite(greenLedPin, HIGH);
-    Serial.println("AMAN! Matikan relay.");
-    newGasStatus = 0;
-  }
-
-  if (lastGasStatus != newGasStatus) {
-    lastGasStatus = newGasStatus;
-    sendAutoRelayStatusToFirebase();
-    sendManualRelayStatusToFirebase();
-  }
-}
-
-
-void updateGasSafetyIndicatorManual(int gasValue) {
-  int newGasStatus = 0;
-  if (gasValue >= PERINGATAN_THRESHOLD && gasValue < BAHAYA_THRESHOLD) {
-    if (manualControl && relay_statusManual) {
-      relay_statusManual = true;
-      digitalWrite(relayPin, HIGH);
-      digitalWrite(redLedPin, LOW);
-      digitalWrite(yellowLedPin, HIGH);
-      digitalWrite(greenLedPin, LOW);
-      Serial.println("PERINGATAN! Matikan relay.");
-      newGasStatus = 1;
-    }
-  }
-
-  if (lastGasStatus != newGasStatus) {
-    lastGasStatus = newGasStatus;
-    sendDataToFirebase(gasValue);
-  }
-}
-
 void updateGasSafetyIndicator(int gasValue) {
   if (manualControl) {
     updateGasSafetyIndicatorManual(gasValue);
@@ -362,11 +249,81 @@ void updateGasSafetyIndicator(int gasValue) {
   }
 }
 
+void updateGasSafetyIndicatorAuto(int gasValue) {
+  int newGasStatus = 0;
+  if (gasValue >= BAHAYA_THRESHOLD) {
+    relay_statusAuto = true;
+    digitalWrite(relayPin, HIGH);
+    digitalWrite(redLedPin, HIGH);
+    digitalWrite(yellowLedPin, LOW);
+    digitalWrite(greenLedPin, LOW);
+    Serial.println("BAHAYA! Aktifkan relay secara otomatis.");
+    newGasStatus = 2;      
+  } else if (gasValue >= PERINGATAN_THRESHOLD && gasValue < BAHAYA_THRESHOLD) {
+    relay_statusAuto = false;
+    relay_statusAuto = true;
+    // sendAutoRelayStatusToFirebase(); // Anda dapat menghapus pemanggilan ini jika tidak diperlukan
+    updateGasSafetyIndicatorManual(gasValue);
+    return;
+  } else if (gasValue <= AMAN_THRESHOLD && gasValue < PERINGATAN_THRESHOLD) {
+    relay_statusAuto = false;
+    relay_statusManual = false;
+    digitalWrite(relayPin, LOW);
+    digitalWrite(redLedPin, LOW);
+    digitalWrite(yellowLedPin, LOW);
+    digitalWrite(greenLedPin, HIGH);
+    Serial.println("AMAN! Matikan relay secara otomatis.");
+    newGasStatus = 0;    
+    sendManualRelayStatusToFirebase();
+  }
+
+  // Memeriksa apakah relay status manual adalah 1 dan nilai gas berada dalam ambang batas aman
+  if (relay_statusManual && gasValue <= AMAN_THRESHOLD) {
+    digitalWrite(relayPin, HIGH); // Mengaktifkan relay secara paksa menjadi HIGH
+    Serial.println("Kondisi aman tetapi relay diaktifkan secara paksa (mode manual).");
+  }
+
+  if (lastGasStatus != newGasStatus) {
+    lastGasStatus = newGasStatus;
+    sendAutoRelayStatusToFirebase(); // Jika Anda membutuhkan pemanggilan ini, Anda dapat mengaktifkannya kembali
+    sendDataToFirebase(gasValue);
+  }
+}
 
 
+void updateGasSafetyIndicatorManual(int gasValue) {
+  int newGasStatus = 0;
+  if (gasValue <= AMAN_THRESHOLD) {
+    // Saat kondisi aman, kembali ke mode otomatis
+    Serial.println("Kembali ke mode kontrol otomatis karena kondisi aman.");
+    manualControl = false; // Matikan kontrol manual
+    updateGasSafetyIndicatorAuto(gasValue); // Kembali ke mode otomatis
+    return;
+  } else if (gasValue >= PERINGATAN_THRESHOLD && gasValue < BAHAYA_THRESHOLD) {
+    // Saat kondisi peringatan, relay diatur sesuai dengan status relay manual dari Firebase
+    if (relay_statusManual) {
+      digitalWrite(relayPin, HIGH);
+      digitalWrite(redLedPin, LOW);
+      digitalWrite(yellowLedPin, HIGH);
+      digitalWrite(greenLedPin, LOW);
+      Serial.println("PERINGATAN! Aktifkan relay secara manual.");
+      newGasStatus = 1;
+    } else {
+      relay_statusAuto = false;
+      digitalWrite(relayPin, LOW);
+      digitalWrite(redLedPin, LOW);
+      digitalWrite(yellowLedPin, HIGH);
+      digitalWrite(greenLedPin, LOW);
+      Serial.println("PERINGATAN! Matikan relay secara manual atau otomatis.");
+      newGasStatus = 1;
+    }
+  }
 
-
-
-
+  if (lastGasStatus != newGasStatus) {
+    lastGasStatus = newGasStatus;
+    sendAutoRelayStatusToFirebase();
+    sendDataToFirebase(gasValue);
+  }
+}
 
 
