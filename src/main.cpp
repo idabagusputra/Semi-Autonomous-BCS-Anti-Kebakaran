@@ -7,11 +7,11 @@
 #define API_KEY "AIzaSyB0wk84Ujy458903OmhZ1fCCl2Kxfa_xzM"
 #define DATABASE_URL "https://bcs-anti-kebakaran-pencurian-default-rtdb.asia-southeast1.firebasedatabase.app/"
 
-// const char *ssid = "AKEBAPEN";
-// const char *password = "12345678";
+const char *ssid = "AKEBAPEN";
+const char *password = "12345678";
 
-const char *ssid = "2nd Floor_Tanjung";
-const char *password = "salman07";
+// const char *ssid = "2nd Floor_Tanjung";
+// const char *password = "salman07";
 
 // const char *ssid = "Ida Bagus Putu Putra Manauaba ";
 // const char *password = "12341234";
@@ -31,12 +31,13 @@ FirebaseConfig config;
 #define BAHAYA_THRESHOLD 700    // Nilai ambang batas untuk keadaan peringatan
 
 unsigned long sendDataPrevMillis = 0;
+
+String statusCondition = "aman"; // Default status
 int count = 0;
 bool signupOK = false;
 bool relay_statusAuto = false;
 bool relay_statusManual = false;
 int lastGasStatus = 0;
-
 bool manualControl = false; // Tambahkan variabel untuk kontrol manual
 
 void connectToWiFi();
@@ -50,6 +51,8 @@ void checkManualRelayStatusFromFirebase();
 void updateGasSafetyIndicatorManual(int gasValue);
 void updateGasSafetyIndicatorAuto(int gasValue);
 void updateGasSafetyIndicator(int gasValue);
+void sendStatusConditionToFirebase(String statusCondition);
+
 
 
 void setup()
@@ -69,6 +72,13 @@ void setupComponents()
   pinMode(yellowLedPin, OUTPUT);
   pinMode(greenLedPin, OUTPUT);
   digitalWrite(yellowLedPin, HIGH);
+
+  IPAddress staticIP(192, 168, 43, 228); // Tentukan alamat IP statis yang diinginkan
+  IPAddress gateway(192, 168, 43, 1);    // Gateway yang sesuai dengan jaringan Anda
+  IPAddress subnet(255, 255, 255, 0);    // Subnet mask untuk jaringan Anda
+
+  // Atur alamat IP statis
+  WiFi.config(staticIP, gateway, subnet);
 }
 
 void loop() {
@@ -239,6 +249,18 @@ void sendManualRelayStatusToFirebase() {
   }
 }
 
+void sendStatusConditionToFirebase(String statusCondition) {
+  if (Firebase.ready() && signupOK) {
+    String statusPath = "/lpg_concentration/device_2/status";
+    if (Firebase.RTDB.setString(&fbdo, statusPath.c_str(), statusCondition)) {
+      Serial.println("Status kondisi terkirim ke Firebase: " + statusCondition);
+    } else {
+      Serial.println("Gagal mengirim status kondisi ke Firebase");
+      Serial.println("Alasan: " + fbdo.errorReason());
+    }
+  }
+}
+
 
 
 void updateGasSafetyIndicator(int gasValue) {
@@ -253,6 +275,7 @@ void updateGasSafetyIndicatorAuto(int gasValue) {
   int newGasStatus = 0;
   if (gasValue >= BAHAYA_THRESHOLD) {
     relay_statusAuto = true;
+    statusCondition = "bahaya";
     digitalWrite(relayPin, HIGH);
     digitalWrite(redLedPin, HIGH);
     digitalWrite(yellowLedPin, LOW);
@@ -262,12 +285,14 @@ void updateGasSafetyIndicatorAuto(int gasValue) {
   } else if (gasValue >= PERINGATAN_THRESHOLD && gasValue < BAHAYA_THRESHOLD) {
     relay_statusAuto = false;
     relay_statusAuto = true;
+    statusCondition = "siaga";
     // sendAutoRelayStatusToFirebase(); // Anda dapat menghapus pemanggilan ini jika tidak diperlukan
     updateGasSafetyIndicatorManual(gasValue);
     return;
   } else if (gasValue <= AMAN_THRESHOLD && gasValue < PERINGATAN_THRESHOLD) {
     relay_statusAuto = false;
     relay_statusManual = false;
+    statusCondition = "aman";
     digitalWrite(relayPin, LOW);
     digitalWrite(redLedPin, LOW);
     digitalWrite(yellowLedPin, LOW);
@@ -287,6 +312,7 @@ void updateGasSafetyIndicatorAuto(int gasValue) {
     lastGasStatus = newGasStatus;
     sendAutoRelayStatusToFirebase(); // Jika Anda membutuhkan pemanggilan ini, Anda dapat mengaktifkannya kembali
     sendDataToFirebase(gasValue);
+    sendStatusConditionToFirebase(statusCondition);
   }
 }
 
@@ -294,6 +320,7 @@ void updateGasSafetyIndicatorAuto(int gasValue) {
 void updateGasSafetyIndicatorManual(int gasValue) {
   int newGasStatus = 0;
   if (gasValue <= AMAN_THRESHOLD) {
+    statusCondition = "aman";
     // Saat kondisi aman, kembali ke mode otomatis
     Serial.println("Kembali ke mode kontrol otomatis karena kondisi aman.");
     manualControl = false; // Matikan kontrol manual
@@ -302,6 +329,7 @@ void updateGasSafetyIndicatorManual(int gasValue) {
   } else if (gasValue >= PERINGATAN_THRESHOLD && gasValue < BAHAYA_THRESHOLD) {
     // Saat kondisi peringatan, relay diatur sesuai dengan status relay manual dari Firebase
     if (relay_statusManual) {
+      statusCondition = "bahaya";
       digitalWrite(relayPin, HIGH);
       digitalWrite(redLedPin, LOW);
       digitalWrite(yellowLedPin, HIGH);
@@ -310,6 +338,7 @@ void updateGasSafetyIndicatorManual(int gasValue) {
       newGasStatus = 1;
     } else {
       relay_statusAuto = false;
+      statusCondition = "siaga";
       digitalWrite(relayPin, LOW);
       digitalWrite(redLedPin, LOW);
       digitalWrite(yellowLedPin, HIGH);
@@ -323,7 +352,11 @@ void updateGasSafetyIndicatorManual(int gasValue) {
     lastGasStatus = newGasStatus;
     sendAutoRelayStatusToFirebase();
     sendDataToFirebase(gasValue);
+    sendStatusConditionToFirebase(statusCondition);
   }
 }
+
+
+
 
 
